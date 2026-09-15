@@ -12,46 +12,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Check out repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Set up Node.js runtime
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      # 3. Set up Python (required if your backend app is Python/Flask)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      # 4. Install dependencies (Python & Node)
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           npm ci || npm install
 
-      # 5. Install Playwright browser binaries and OS dependencies
+  
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # 6. Start the background web application (port 5000)
-      # Adjust 'python app.py' if your start command is different
+      
       - name: Start local server
         run: |
           python app.py &
           npx wait-on http://127.0.0.1:5000 --timeout 60000
 
-      # 7. Run Playwright tests
+    
       - name: Run Playwright tests
         run: npm test
 
-      # 8. Upload test report artifact
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
