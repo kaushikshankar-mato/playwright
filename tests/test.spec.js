@@ -1,6 +1,6 @@
 
 
-const { test, expect } = require('@playwright/test');
+import { test, expect } from '@playwright/test';
 
 const BASE_URL = 'https://www.saucedemo.com';
 
