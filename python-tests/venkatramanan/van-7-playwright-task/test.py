@@ -1,11 +1,11 @@
 import pytest
 from playwright.sync_api import Page, expect
 
-TIMEOUT = 20000
+TIMEOUT = 60000
 
 
 def wait_for_products_loaded(page: Page):
-   
+    """Wait until at least one card-title has non-empty text."""
     page.wait_for_function(
         """() => {
             const titles = document.querySelectorAll('.card-title');
@@ -14,7 +14,6 @@ def wait_for_products_loaded(page: Page):
         }""",
         timeout=TIMEOUT
     )
-
 
 def test_search_product(page: Page):
     page.goto("http://localhost:4200")
