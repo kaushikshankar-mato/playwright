@@ -5,7 +5,7 @@ TIMEOUT = 20000
 
 
 def wait_for_products_loaded(page: Page):
-    """Wait until at least one card-title has non-empty text."""
+   
     page.wait_for_function(
         """() => {
             const titles = document.querySelectorAll('.card-title');
