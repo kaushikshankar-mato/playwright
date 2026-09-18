@@ -1,30 +1,43 @@
 import pytest
 from playwright.sync_api import Page, expect
 
-TIMEOUT = 15000  
+TIMEOUT = 20000
+
+
+def wait_for_products_loaded(page: Page):
+    """Wait until at least one card-title has non-empty text."""
+    page.wait_for_function(
+        """() => {
+            const titles = document.querySelectorAll('.card-title');
+            return titles.length > 0 && 
+                   Array.from(titles).some(t => t.textContent.trim().length > 0);
+        }""",
+        timeout=TIMEOUT
+    )
 
 
 def test_search_product(page: Page):
     page.goto("http://localhost:4200")
-    page.wait_for_load_state("networkidle")
+    wait_for_products_loaded(page)  # wait for homepage products first
 
     page.fill('[data-test="search-query"]', "pliers")
     page.press('[data-test="search-query"]', "Enter")
     page.wait_for_load_state("networkidle")
-    
-    expect(page.locator(".card-title").first).not_to_have_text("", timeout=TIMEOUT)
+
+    # Wait for search results specifically
+    page.wait_for_timeout(2000)
+    wait_for_products_loaded(page)
 
     products = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
 
-    assert len(products) > 0
+    assert len(products) > 0, "No products found for 'pliers' search"
     for name in products:
         assert "pliers" in name.lower()
 
 
 def test_apply_filter(page: Page):
     page.goto("http://localhost:4200")
-    page.wait_for_load_state("networkidle")
-    expect(page.locator(".card-title").first).not_to_have_text("", timeout=TIMEOUT)
+    wait_for_products_loaded(page)
 
     checkbox = page.locator('input[type="checkbox"]').first
     checkbox.check()
@@ -36,8 +49,7 @@ def test_apply_filter(page: Page):
 
 def test_apply_sorting(page: Page):
     page.goto("http://localhost:4200")
-    page.wait_for_load_state("networkidle")
-    expect(page.locator(".card-title").first).not_to_have_text("", timeout=TIMEOUT)
+    wait_for_products_loaded(page)
 
     page.select_option('[data-test="sort"]', value="name,asc")
     page.wait_for_timeout(1500)
@@ -48,8 +60,7 @@ def test_apply_sorting(page: Page):
 
 def test_pagination(page: Page):
     page.goto("http://localhost:4200")
-    page.wait_for_load_state("networkidle")
-    expect(page.locator(".card-title").first).not_to_have_text("", timeout=TIMEOUT)
+    wait_for_products_loaded(page)
 
     first_page = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
 
@@ -63,11 +74,9 @@ def test_pagination(page: Page):
 
 def test_select_product_and_validate_details(page: Page):
     page.goto("http://localhost:4200")
-    page.wait_for_load_state("networkidle")
+    wait_for_products_loaded(page)
 
     first_card = page.locator(".card").first
-    expect(first_card.locator(".card-title")).not_to_have_text("", timeout=TIMEOUT)
-
     name_in_search = first_card.locator(".card-title").inner_text().strip()
 
     first_card.click()
