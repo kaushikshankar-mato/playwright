@@ -82,7 +82,6 @@ jobs:
           done
           echo "Warm-up complete"
 
-
       - name: Run tests
         run: |
           cd ${{ steps.findpath.outputs.task_dir }}
@@ -303,8 +302,7 @@ jobs:
           cd practice-software-testing
           docker compose up -d
 
-          echo "Waiting for MariaDB to start..."
-          # Retry migration until the database container is accepting connections
+          echo "Waiting for MariaDB and running migrations..."
           for i in {1..12}; do
             if docker compose exec -T laravel-api php artisan migrate:fresh --seed; then
               echo "Database migrated and seeded successfully."
@@ -318,7 +316,7 @@ jobs:
 
       - name: Wait for API and Frontend readiness
         run: |
-          echo "Waiting for API (port 8091) to return seeded products..."
+          echo "Waiting for API (port 8091) to return catalog data..."
           for i in {1..30}; do
             if curl -s http://localhost:8091/products | grep -q "id"; then
               echo "API is healthy and returning catalog data."
@@ -329,25 +327,31 @@ jobs:
           done
 
           echo "Waiting for Frontend (port 4200) to serve compiled app..."
+          FRONTEND_READY=false
           for i in {1..30}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4200)
-            if [ "$STATUS" -eq 200 ]; then
-              echo "Frontend is ready."
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4200 || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Frontend is ready (HTTP 200)."
+              FRONTEND_READY=true
               break
             fi
-            echo "Frontend returned $STATUS, retrying in 5s... ($i/30)"
+            echo "Frontend returned status $STATUS, retrying in 5s... ($i/30)"
             sleep 5
           done
 
-      - name: Debug - Verify application state before tests
+          if [ "$FRONTEND_READY" = false ]; then
+            echo "Frontend failed to start. Container logs:"
+            cd practice-software-testing
+            docker compose ps
+            docker compose logs --tail=100
+            exit 1
+          fi
+
+      - name: Verify application state before tests
         run: |
           cd practice-software-testing
           echo "===== Product count in DB ====="
-          docker compose exec -T laravel-api php artisan tinker --execute="echo 'Products: ' . App\Models\Product::count() . PHP_EOL;"
-          
-          echo "===== Sample API product response ====="
-          curl -s http://localhost:8091/products | head -c 300
-          echo ""
+          docker compose exec -T laravel-api php artisan tinker --execute="echo 'Products count: ' . App\Models\Product::count() . PHP_EOL;"
 
       - name: Run tests
         run: |
