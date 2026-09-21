@@ -84,26 +84,15 @@ jobs:
 
       - name: Debug - Check app and API state
         run: |
-          echo "===== Docker container status ====="
           cd practice-software-testing
-          docker compose ps
-          
           echo "===== Product count in DB ====="
           docker compose exec -T laravel-api php artisan tinker --execute="echo App\Models\Product::count();"
           
-          echo "===== Laravel API logs (last 50 lines) ====="
+          echo "===== Laravel API logs ====="
           docker compose logs laravel-api --tail=50
-          
-          echo "===== Angular UI logs (last 50 lines) ====="
-          docker compose logs angular-ui --tail=50
           
           echo "===== Raw API response ====="
           curl -s http://localhost:8091/products | head -c 2000
-          
-          echo ""
-          echo "===== Raw homepage HTML ====="
-          curl -s http://localhost:4200 | head -c 2000
-
       - name: Run tests
         run: |
           cd ${{ steps.findpath.outputs.task_dir }}
