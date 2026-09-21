@@ -6,7 +6,7 @@ TIMEOUT = 30000
 
 
 def wait_for_products_loaded(page: Page):
-    """Wait for at least one product card to be attached and non-empty."""
+    
     first_title = page.locator(".card-title").first
     expect(first_title).to_be_visible(timeout=TIMEOUT)
     expect(first_title).not_to_have_text("", timeout=TIMEOUT)
@@ -16,13 +16,11 @@ def test_search_product(page: Page):
     page.goto(BASE_URL)
     wait_for_products_loaded(page)
 
-    # Intercept the search API call to prevent reading stale DOM cards
     with page.expect_response(
         lambda r: "/products" in r.url and r.status == 200, 
         timeout=TIMEOUT
     ):
         page.fill('[data-test="search-query"]', "pliers")
-        # Submit via button click or Enter key
         search_btn = page.locator('[data-test="search-submit"]')
         if search_btn.is_visible():
             search_btn.click()
@@ -46,7 +44,6 @@ def test_apply_filter(page: Page):
 
     initial_products = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
 
-    # Target the first category/brand filter checkbox
     checkbox = page.locator('input[type="checkbox"]').first
     expect(checkbox).to_be_visible(timeout=TIMEOUT)
 
@@ -59,8 +56,6 @@ def test_apply_filter(page: Page):
     wait_for_products_loaded(page)
 
     filtered_products = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
-    
-    # Assert that a non-empty result was returned and catalog state actually updated
     assert len(filtered_products) > 0, "Filter returned zero products"
     assert filtered_products != initial_products, "Filter selection did not alter the displayed product list"
 
@@ -69,13 +64,23 @@ def test_apply_sorting(page: Page):
     page.goto(BASE_URL)
     wait_for_products_loaded(page)
 
-    with page.expect_response(
-        lambda r: "/products" in r.url and "sort=" in r.url and r.status == 200,
-        timeout=TIMEOUT
-    ):
-        page.select_option('[data-test="sort"]', value="name,asc")
+    # Sorting is handled client-side in Angular (no network request)
+    page.select_option('[data-test="sort"]', value="name,asc")
 
-    wait_for_products_loaded(page)
+    # Wait until the browser DOM reflects alphabetical order (A-Z)
+    page.wait_for_function(
+        """() => {
+            const titles = Array.from(document.querySelectorAll('.card-title'))
+                .map(el => el.textContent.trim().toLowerCase())
+                .filter(t => t.length > 0);
+            if (titles.length === 0) return false;
+            for (let i = 0; i < titles.length - 1; i++) {
+                if (titles[i].localeCompare(titles[i + 1]) > 0) return false;
+            }
+            return true;
+        }""",
+        timeout=TIMEOUT
+    )
 
     products = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
     assert len(products) > 0, "No products visible after sorting"
@@ -87,18 +92,17 @@ def test_pagination(page: Page):
     wait_for_products_loaded(page)
 
     first_page = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
+    assert len(first_page) > 0, "Page 1 has no products loaded"
 
     next_btn = page.locator('[aria-label="Next"], ul.pagination li:last-child a').first
     expect(next_btn).to_be_visible(timeout=TIMEOUT)
     expect(next_btn).to_be_enabled(timeout=TIMEOUT)
 
-    with page.expect_response(
-        lambda r: "/products" in r.url and "page=" in r.url and r.status == 200,
-        timeout=TIMEOUT
-    ):
-        next_btn.click()
+    # Pagination is client-side; click next
+    next_btn.click()
 
-    wait_for_products_loaded(page)
+    # Wait for the first card to update to page 2's first product
+    expect(page.locator(".card-title").first).not_to_have_text(first_page[0], timeout=TIMEOUT)
 
     second_page = [p.strip() for p in page.locator(".card-title").all_inner_texts() if p.strip()]
     assert len(second_page) > 0, "No products displayed on page 2"
