@@ -1,94 +1,231 @@
-name: CI Pipeline - Run Changed Member Tests
+name: CI Pipeline - Playwright Tests (Python & JS)
 
 on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'python-tests/**'
+      - 'JS-tests/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'python-tests/**'
+      - 'JS-tests/**'
 
 jobs:
-  # DETECT
-  detect-changes:
+  test:
     runs-on: ubuntu-latest
     outputs:
-      venkatramanan: ${{ steps.filter.outputs.venkatramanan }}
-      arundeepak: ${{ steps.filter.outputs.arundeepak }}
-      vasudevan: ${{ steps.filter.outputs.vasudevan }}
-      vivek: ${{ steps.filter.outputs.vivek }}
+      task_dir: ${{ steps.detect.outputs.task_dir }}
+      member: ${{ steps.detect.outputs.member }}
+      lang: ${{ steps.detect.outputs.lang }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed folders
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          base: main
-          filters: |
-            venkatramanan:
-              - 'python-tests/venkatramanan/**'
-            arundeepak:
-              - 'python-tests/arundeepak/**'
-            vasudevan:
-              - 'python-tests/vasudevan/**'
-            vivek:
-              - 'python-tests/vivek/**'
-
-
-  #ARUNU
-  test-arundeepak:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.arundeepak == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      task_dir: ${{ steps.findpath.outputs.task_dir }}
-    steps:
-      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Detect changed task directory & language
+        id: detect
+        run: |
+          # Use origin/main...HEAD for PRs, and HEAD~1 HEAD for direct pushes/merges to main
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep -E '^(python-tests|JS-tests)/' | head -n 1)
+          else
+            CHANGED_FILE=$(git diff --name-only HEAD~1 HEAD | grep -E '^(python-tests|JS-tests)/' | head -n 1)
+          fi
+
+          if [ -z "$CHANGED_FILE" ]; then
+            echo "No test files changed."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          TYPE_FOLDER=$(echo "$CHANGED_FILE" | cut -d'/' -f1)
+          MEMBER=$(echo "$CHANGED_FILE" | cut -d'/' -f2)
+          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
+
+          echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
+          echo "member=$MEMBER" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+          echo "Event: ${{ github.event_name }}"
+          echo "Detected Type: $TYPE_FOLDER"
+          echo "Detected Member: $MEMBER"
+          echo "Detected Task Dir: $TASK_DIR"
+
+          if [ ! -d "$TASK_DIR" ]; then
+            echo "::error::Directory '$TASK_DIR' does not exist."
+            exit 1
+          fi
+
+          if [ "$TYPE_FOLDER" = "python-tests" ]; then
+            echo "lang=python" >> $GITHUB_OUTPUT
+          elif [ "$TYPE_FOLDER" = "JS-tests" ]; then
+            echo "lang=js" >> $GITHUB_OUTPUT
+          fi
+
+      
       - name: Set up Python
+        if: steps.detect.outputs.lang == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Find changed task folder
-        id: findpath
+      - name: Install Python dependencies
+        if: steps.detect.outputs.lang == 'python'
         run: |
-          CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep 'python-tests/arundeepak/' | head -n 1)
-          echo "Changed file: $CHANGED_FILE"
-          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
-          echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
-          echo "Detected task folder: $TASK_DIR"
-
-      - name: Install dependencies
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
+          cd ${{ steps.detect.outputs.task_dir }}
           pip install -r requirements.txt
-          playwright install --with-deps
+          playwright install --with-deps chromium
 
-      - name: Start Toolshop app
+     
+      - name: Set up Node.js
+        if: steps.detect.outputs.lang == 'js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install JS dependencies
+        if: steps.detect.outputs.lang == 'js'
+        run: |
+          cd ${{ steps.detect.outputs.task_dir }}
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+
+      
+      - name: Start Toolshop App
+        if: steps.detect.outputs.has_changes == 'true'
         run: |
           git clone https://github.com/testsmith-io/practice-software-testing.git
           cd practice-software-testing
           docker compose up -d
-          sleep 60
-          docker compose exec -T laravel-api php artisan migrate:fresh --seed
 
-      - name: Run tests
+          echo "Waiting for MariaDB and executing database seeding..."
+          for i in {1..12}; do
+            if docker compose exec -T laravel-api php artisan migrate:fresh --seed; then
+              echo "Database seeded successfully."
+              break
+            fi
+            echo "Database not ready yet, retrying in 5s... ($i/12)"
+            sleep 5
+          done
+
+          docker compose exec -T --user root laravel-api chmod -R 777 storage bootstrap/cache .env
+
+      - name: Wait for Toolshop Readiness (ports 8091 & 4200)
+        if: steps.detect.outputs.has_changes == 'true'
         run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
+          echo "Waiting for Toolshop API (port 8091) to return products..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8091/products | grep -q "id"; then
+              echo "Toolshop API is ready."
+              break
+            fi
+            sleep 5
+          done
+
+          echo "Waiting for Toolshop Frontend (port 4200)..."
+          FRONTEND_READY=false
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4200 || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Toolshop Frontend is ready (HTTP 200)."
+              FRONTEND_READY=true
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$FRONTEND_READY" = false ]; then
+            echo "Toolshop Frontend failed to start. Dumping container logs:"
+            cd practice-software-testing
+            docker compose logs --tail=100
+            exit 1
+          fi
+
+     
+      - name: Start OrangeHRM
+        if: steps.detect.outputs.has_changes == 'true'
+        run: |
+          echo "Starting OrangeHRM container stack..."
+          docker network create orangehrm-net || true
+
+          docker run -d --name orangehrm-db \
+            --network orangehrm-net \
+            --restart unless-stopped \
+            -e MYSQL_ROOT_PASSWORD=rootpass \
+            -e MYSQL_DATABASE=orangehrm \
+            -e MYSQL_USER=orangehrm \
+            -e MYSQL_PASSWORD=orangehrmpass \
+            mariadb:10.5
+
+          echo "Waiting 15s for OrangeHRM database to start..."
+          sleep 15
+
+          # Map host port 4201 -> container port 80
+          docker run -d --name orangehrm-app \
+            --network orangehrm-net \
+            --restart unless-stopped \
+            -p 4201:80 \
+            -e ORANGEHRM_DATABASE_HOST=orangehrm-db \
+            -e ORANGEHRM_DATABASE_NAME=orangehrm \
+            -e ORANGEHRM_DATABASE_USER=orangehrm \
+            -e ORANGEHRM_DATABASE_PASSWORD=orangehrmpass \
+            orangehrm/orangehrm:latest
+
+      - name: Wait for OrangeHRM Readiness (port 4201)
+        if: steps.detect.outputs.has_changes == 'true'
+        run: |
+          echo "Waiting for OrangeHRM (port 4201)..."
+          ORANGE_READY=false
+          for i in {1..40}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4201 || echo "000")
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ]; then
+              echo "OrangeHRM is ready (HTTP $STATUS)."
+              ORANGE_READY=true
+              break
+            fi
+            echo "OrangeHRM returned status $STATUS, retrying in 5s... ($i/40)"
+            sleep 5
+          done
+
+          if [ "$ORANGE_READY" = false ]; then
+            echo "OrangeHRM failed to boot. Container logs:"
+            docker logs --tail=100 orangehrm-app
+            docker logs --tail=50 orangehrm-db
+            exit 1
+          fi
+
+      - name: Run Python Tests
+        if: steps.detect.outputs.lang == 'python'
+        run: |
+          cd ${{ steps.detect.outputs.task_dir }}
           pytest test.py --html=report.html --self-contained-html -v
 
-      - name: Upload test report
-        if: always()
+      - name: Run JavaScript Tests
+        if: steps.detect.outputs.lang == 'js'
+        run: |
+          cd ${{ steps.detect.outputs.task_dir }}
+          npx playwright test
+
+      
+      - name: Upload Test Report
+        if: always() && steps.detect.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: arundeepak-report
-          path: ${{ steps.findpath.outputs.task_dir }}/report.html
+          name: ${{ steps.detect.outputs.member }}-report
+          path: |
+            ${{ steps.detect.outputs.task_dir }}/report.html
+            ${{ steps.detect.outputs.task_dir }}/playwright-report/
+          if-no-files-found: ignore
 
-  docker-push-arundeepak:
-    needs: test-arundeepak
-    if: success()
+  docker-push:
+    needs: test
+    if: success() && needs.test.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,222 +236,16 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:arundeepak ${{ needs.test-arundeepak.outputs.task_dir }}
-
-      - name: Push image
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:arundeepak
-
-  #VASU
-  test-vasudevan:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.vasudevan == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      task_dir: ${{ steps.findpath.outputs.task_dir }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Find changed task folder
-        id: findpath
+      - name: Build and Push Member Image
         run: |
-          CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep 'python-tests/vasudevan/' | head -n 1)
-          echo "Changed file: $CHANGED_FILE"
-          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
-          echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
-          echo "Detected task folder: $TASK_DIR"
+          TASK_DIR="${{ needs.test.outputs.task_dir }}"
+          MEMBER="${{ needs.test.outputs.member }}"
 
-      - name: Install dependencies
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
-          pip install -r requirements.txt
-          playwright install --with-deps
+          if [ ! -f "$TASK_DIR/Dockerfile" ]; then
+            echo "No Dockerfile found in $TASK_DIR. Skipping image push."
+            exit 0
+          fi
 
-      - name: Start Toolshop app
-        run: |
-          git clone https://github.com/testsmith-io/practice-software-testing.git
-          cd practice-software-testing
-          docker compose up -d
-          sleep 60
-          docker compose exec -T laravel-api php artisan migrate:fresh --seed
-
-      - name: Run tests
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
-          pytest test.py --html=report.html --self-contained-html -v
-
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vasudevan-report
-          path: ${{ steps.findpath.outputs.task_dir }}/report.html
-
-  docker-push-vasudevan:
-    needs: test-vasudevan
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:vasudevan ${{ needs.test-vasudevan.outputs.task_dir }}
-
-      - name: Push image
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:vasudevan
-
-  #viveku
-  test-vivek:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.vivek == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      task_dir: ${{ steps.findpath.outputs.task_dir }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Find changed task folder
-        id: findpath
-        run: |
-          CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep 'python-tests/vivek/' | head -n 1)
-          echo "Changed file: $CHANGED_FILE"
-          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
-          echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
-          echo "Detected task folder: $TASK_DIR"
-
-      - name: Install dependencies
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
-          pip install -r requirements.txt
-          playwright install --with-deps
-
-      - name: Start Toolshop app
-        run: |
-          git clone https://github.com/testsmith-io/practice-software-testing.git
-          cd practice-software-testing
-          docker compose up -d
-          sleep 60
-          docker compose exec -T laravel-api php artisan migrate:fresh --seed
-
-      - name: Run tests
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
-          pytest test.py --html=report.html --self-contained-html -v
-
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vivek-report
-          path: ${{ steps.findpath.outputs.task_dir }}/report.html
-
-  docker-push-vivek:
-    needs: test-vivek
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:vivek ${{ needs.test-vivek.outputs.task_dir }}
-
-      - name: Push image
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:vivek
-
-
-  #VENKAT
-  test-venkatramanan:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.venkatramanan == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      task_dir: ${{ steps.findpath.outputs.task_dir }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Find changed task folder
-        id: findpath
-        run: |
-          CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep 'python-tests/venkatramanan/' | head -n 1)
-          echo "Changed file: $CHANGED_FILE"
-          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
-          echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
-          echo "Detected task folder: $TASK_DIR"
-
-      - name: Install dependencies
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
-          pip install -r requirements.txt
-          playwright install --with-deps
-
-      - name: Start Toolshop app
-        run: |
-          git clone https://github.com/testsmith-io/practice-software-testing.git
-          cd practice-software-testing
-          docker compose up -d
-          sleep 60
-          docker compose exec -T laravel-api php artisan migrate:fresh --seed
-
-      - name: Run tests
-        run: |
-          cd ${{ steps.findpath.outputs.task_dir }}
-          pytest test.py --html=report.html --self-contained-html -v
-
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: venkatramanan-report
-          path: ${{ steps.findpath.outputs.task_dir }}/report.html
-
-  docker-push-venkatramanan:
-    needs: test-venkatramanan
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:venkatramanan ${{ needs.test-venkatramanan.outputs.task_dir }}
-
-      - name: Push image
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/toolshop-tests:venkatramanan      
+          IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/toolshop-tests:${MEMBER}"
+          docker build -t "$IMAGE_TAG" "$TASK_DIR"
+          docker push "$IMAGE_TAG"
