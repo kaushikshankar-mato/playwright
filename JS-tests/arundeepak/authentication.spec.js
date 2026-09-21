@@ -1,152 +1,178 @@
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = "http://localhost:4200";
-const email = `arundeepak${Math.floor(10000 + Math.random() * 90000)}@example.com`;
-const password = "ArunDeepak*123";
 
-async function test_application_accessible(page) {
+const BASE_URL = 'http://localhost:4200';
+const PASSWORD = 'ArunDeepak*123';
 
-    await page.goto(BASE_URL);
 
-    await expect(page.locator("#Layer_1")).toBeVisible();
-}
+async function registerUser(page) {
 
-async function register_user(page) {
+    const email = `arundeepak${Math.floor(10000 + Math.random() * 90000)}@example.com`;
 
     await page.goto(`${BASE_URL}/auth/register`);
 
-    await page.getByPlaceholder("First name *").fill("Arun");
+    await page.getByPlaceholder('First name *').fill('Arun');
+    await page.getByPlaceholder('Your last name *').fill('Deepak');
+    await page.getByPlaceholder('YYYY-MM-DD').fill('1999-01-01');
 
-    await page.getByPlaceholder("Your last name *").fill("Deepak");
+    await page.locator('#country').selectOption('IN');
 
-    await page.getByPlaceholder("YYYY-MM-DD").fill("1999-01-01");
+    await page.getByPlaceholder('Your Postcode *').fill('630606');
+    await page.getByPlaceholder('e.g. 42 *').fill('32-E');
 
-    await page.locator("#country").selectOption("IN");
+    await page.getByPlaceholder('Your Street *').fill('Main Street');
+    await page.getByPlaceholder('Your City *').fill('Manamadurai');
+    await page.getByPlaceholder('Your State *').fill('Tamil Nadu');
 
-    await page.getByPlaceholder("Your Postcode *").fill("630606");
+    await page.locator("[data-test='phone']").fill('9876543210');
 
-    await page.getByPlaceholder("e.g. 42 *").fill("32-E");
-
-    await page.getByPlaceholder("Your Street *").fill("Main Street");
-
-    await page.getByPlaceholder("Your City *").fill("Manamadurai");
-
-    await page.getByPlaceholder("Your State *").fill("Tamil Nadu");
-
-    await page.locator("[data-test='phone']").fill("9876543210");
-
-    await page.getByPlaceholder("Your email *").fill(email);
-
-    await page.getByPlaceholder("Your password").fill(password);
+    await page.getByPlaceholder('Your email *').fill(email);
+    await page.getByPlaceholder('Your password').fill(PASSWORD);
 
     await page.locator("button[data-test='register-submit']").click();
+
+    await page.waitForTimeout(1000);
+
+    console.log('Registration URL:', page.url());
+    console.log('Registration page:', await page.locator('body').innerText());
+
+    await expect(page).toHaveURL(`${BASE_URL}/auth/login`);
+
+    console.log('REGISTER EMAIL:', email);
+
+    return email;
 }
 
-async function login(page) {
+
+async function login(page, email) {
 
     await page.goto(`${BASE_URL}/auth/login`);
 
-    await page.getByPlaceholder("Your email").fill(email);
-
-    await page.getByPlaceholder("Your password").fill(password);
+    await page.getByPlaceholder('Your email').fill(email);
+    await page.getByPlaceholder('Your password').fill(PASSWORD);
 
     await page.locator("input[data-test='login-submit']").click();
+
+    await expect(page).toHaveURL(`${BASE_URL}/account`);
 }
 
-test("test_application_accessible", async ({ page }) => {
 
-    await test_application_accessible(page);
+test('application accessible', async ({ page }) => {
+
+    await page.goto(BASE_URL);
+
+    await expect(page.locator('#Layer_1')).toBeVisible();
 });
 
-test("test_register_and_login", async ({ page }) => {
 
-    await register_user(page);
+test('session persistence', async ({ page }) => {
 
-    await login(page);
-});
+    const email = await registerUser(page);
 
-test("test_session_persistence", async ({ page }) => {
+    await login(page, email);
 
-    await register_user(page);
-
-    await login(page);
+    await expect(page).toHaveURL(`${BASE_URL}/account`);
 
     await page.reload();
+
+    await expect(page).toHaveURL(`${BASE_URL}/account`);
 });
 
-test("test_new_browser_context", async ({ page, browser }) => {
 
-    await register_user(page);
+test('new browser context', async ({ page, browser }) => {
 
-    await login(page);
+    const email = await registerUser(page);
+
+    await login(page, email);
+
+    await expect(page).toHaveURL(`${BASE_URL}/account`);
 
     const context = await browser.newContext();
+    const newPage = await context.newPage();
 
-    const new_page = await context.newPage();
+    await newPage.goto(`${BASE_URL}/account`);
 
-    await new_page.goto(BASE_URL);
+    await expect(newPage).toHaveURL(`${BASE_URL}/auth/login`);
 
     await context.close();
 });
 
-test("test_logout", async ({ page }) => {
 
-    await register_user(page);
-    await login(page);
+test('logout', async ({ page }) => {
 
-    console.log("LOGIN URL:", page.url());
+    const email = await registerUser(page);
 
-    console.log("PAGE TEXT AFTER LOGIN:");
-    console.log(await page.locator("body").innerText());
+    await login(page, email);
+
+    await expect(page).toHaveURL(`${BASE_URL}/account`);
+
+    await page.locator("[data-test='nav-menu']").click();
+
+    await page.locator("[data-test='nav-sign-out']").click();
+
+    await expect(page).toHaveURL(`${BASE_URL}/auth/login`);
 });
 
-test("test_invalid_login", async ({ page }) => {
+
+test('invalid login', async ({ page }) => {
 
     await page.goto(`${BASE_URL}/auth/login`);
 
-    await page.getByPlaceholder("Your email").fill("invalid@example.com");
-
-    await page.getByPlaceholder("Your password").fill("WrongPassword*123");
+    await page.getByPlaceholder('Your email').fill('invalid@example.com');
+    await page.getByPlaceholder('Your password').fill('WrongPassword*123');
 
     await page.locator("input[data-test='login-submit']").click();
+
+    await page.waitForTimeout(1000);
+
+    console.log('Login URL:', page.url());
+    console.log('Login page:', await page.locator('body').innerText());
+
+    await expect(page).toHaveURL(`${BASE_URL}/auth/login`);
+
+    await expect(page.getByText('Invalid email or password')).toBeVisible();
 });
 
-test("test_required_fields", async ({ page }) => {
+
+test('required fields', async ({ page }) => {
 
     await page.goto(`${BASE_URL}/auth/register`);
 
-    await expect(page.getByPlaceholder("First name *"))
-        .toHaveAttribute("aria-required", "true");
+    await expect(page.getByPlaceholder('First name *')).toHaveAttribute('aria-required', 'true');
 
-    await expect(page.getByPlaceholder("Your last name *"))
-        .toHaveAttribute("aria-required", "true");
+    await expect(page.getByPlaceholder('Your last name *')).toHaveAttribute('aria-required', 'true');
 
-    await expect(page.getByPlaceholder("Your Postcode *"))
-        .toHaveAttribute("aria-required", "true");
+    await expect(page.getByPlaceholder('Your Postcode *')).toHaveAttribute('aria-required', 'true');
 
-    await expect(page.getByPlaceholder("Your email *"))
-        .toHaveAttribute("aria-required", "true");
+    await expect(page.getByPlaceholder('Your email *')).toHaveAttribute('aria-required', 'true');
 });
 
-test("test_authentication_storage", async ({ page }) => {
 
-    await register_user(page);
+test('authentication storage', async ({ page }) => {
 
-    await login(page);
+    const email = await registerUser(page);
+
+    await login(page, email);
+
+    await expect(page).toHaveURL(`${BASE_URL}/account`);
 
     const cookies = await page.context().cookies();
 
-    const local_storage = await page.evaluate(() =>
-        Object.keys(localStorage)
-    );
+    const localStorage = await page.evaluate(() => {
+        return Object.entries(localStorage);
+    });
 
-    const session_storage = await page.evaluate(() =>
-        Object.keys(sessionStorage)
-    );
+    const sessionStorage = await page.evaluate(() => {
+        return Object.entries(sessionStorage);
+    });
 
-    console.log("Cookies:", cookies);
+    console.log('Cookies:', cookies);
+    console.log('Local Storage:', localStorage);
+    console.log('Session Storage:', sessionStorage);
 
-    console.log("Local Storage:", local_storage);
-
-    console.log("Session Storage:", session_storage);
+    expect(
+        cookies.length > 0 ||
+        localStorage.length > 0 ||
+        sessionStorage.length > 0
+    ).toBeTruthy();
 });
