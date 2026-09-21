@@ -82,17 +82,7 @@ jobs:
           done
           echo "Warm-up complete"
 
-      - name: Debug - Check app and API state
-        run: |
-          cd practice-software-testing
-          echo "===== Product count in DB ====="
-          docker compose exec -T laravel-api php artisan tinker --execute="echo App\Models\Product::count();"
-          
-          echo "===== Laravel API logs ====="
-          docker compose logs laravel-api --tail=50
-          
-          echo "===== Raw API response ====="
-          curl -s http://localhost:8091/products | head -c 2000
+
       - name: Run tests
         run: |
           cd ${{ steps.findpath.outputs.task_dir }}
@@ -323,6 +313,18 @@ jobs:
             sleep 5
           done
           echo "Warm-up complete"
+          
+      - name: Debug - Check app and API state
+        run: |
+          cd practice-software-testing
+          echo "===== Product count in DB ====="
+          docker compose exec -T laravel-api php artisan tinker --execute="echo App\Models\Product::count();"
+          
+          echo "===== Laravel API logs ====="
+          docker compose logs laravel-api --tail=50
+          
+          echo "===== Raw API response ====="
+          curl -s http://localhost:8091/products | head -c 2000
 
       - name: Run tests
         run: |
