@@ -33,7 +33,7 @@ test.describe('Toolshop JS Tests', () => {
   test('Apply A-Z sorting (client-side)', async ({ page }) => {
     await page.locator('[data-test="sort"]').selectOption('name,asc');
 
-    // Wait until cards reorder alphabetically in the DOM
+    
     await page.waitForFunction(() => {
       const titles = Array.from(document.querySelectorAll('.card-title'))
         .map((el) => el.textContent.trim().toLowerCase())
