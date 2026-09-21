@@ -3,7 +3,9 @@ FROM mcr.microsoft.com/playwright:v1.49.0-noble
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+
+# Uses npm ci if package-lock.json exists, otherwise falls back to npm install
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY . .
 
