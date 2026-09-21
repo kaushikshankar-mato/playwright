@@ -303,7 +303,8 @@ jobs:
           cd practice-software-testing
           docker compose up -d
           sleep 60
-          docker compose exec -T laravel-api php artisan migrate:fresh --seed
+          docker exec -it pst-laravel-api-1 php artisan migrate:fresh --seed
+          docker compose exec --user root laravel-api chmod -R 777 storage bootstrap/cache .env
 
       - name: Warm up Angular app (trigger compilation)
         run: |
