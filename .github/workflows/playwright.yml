@@ -1,4 +1,4 @@
-name: CI Pipeline - Unified Playwright Tests
+name: CI Pipeline - Playwright Tests (Python & JS)
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'python-tests/**'
-      - 'js-tests/**'
+      - 'JS-tests/**'
 
 jobs:
   test:
@@ -25,71 +25,67 @@ jobs:
       - name: Detect changed task directory & language
         id: detect
         run: |
-          CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep -E '^(python-tests|js-tests)/' | head -n 1)
+          # Match either python-tests or JS-tests (case-sensitive)
+          CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep -E '^(python-tests|JS-tests)/' | head -n 1)
 
           if [ -z "$CHANGED_FILE" ]; then
-            echo "No test files changed in this PR."
+            echo "No test files changed."
             echo "has_changes=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
+          TYPE_FOLDER=$(echo "$CHANGED_FILE" | cut -d'/' -f1)
           MEMBER=$(echo "$CHANGED_FILE" | cut -d'/' -f2)
+          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
 
           echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
           echo "member=$MEMBER" >> $GITHUB_OUTPUT
           echo "has_changes=true" >> $GITHUB_OUTPUT
 
-          echo "Detected member: $MEMBER"
-          echo "Detected task directory: $TASK_DIR"
+          echo "Detected Type: $TYPE_FOLDER"
+          echo "Detected Member: $MEMBER"
+          echo "Detected Task Dir: $TASK_DIR"
 
-          # Validate directory structure
           if [ ! -d "$TASK_DIR" ]; then
             echo "::error::Directory '$TASK_DIR' does not exist."
             exit 1
           fi
 
-          # Detect language runtime
-          if [ -f "$TASK_DIR/requirements.txt" ]; then
+          if [ "$TYPE_FOLDER" = "python-tests" ]; then
             echo "lang=python" >> $GITHUB_OUTPUT
-            echo "Runtime: Python"
-          elif [ -f "$TASK_DIR/package.json" ]; then
+          elif [ "$TYPE_FOLDER" = "JS-tests" ]; then
             echo "lang=js" >> $GITHUB_OUTPUT
-            echo "Runtime: JavaScript/Node.js"
-          else
-            echo "::error::Directory '$TASK_DIR' must contain either requirements.txt or package.json"
-            exit 1
           fi
 
-      # ------------------- RUNTIME: PYTHON -------------------
+      # ------------------- PYTHON ENVIRONMENT -------------------
       - name: Set up Python
         if: steps.detect.outputs.lang == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install Python Dependencies & Playwright
+      - name: Install Python dependencies
         if: steps.detect.outputs.lang == 'python'
         run: |
           cd ${{ steps.detect.outputs.task_dir }}
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
-      # ------------------- RUNTIME: NODE / JS -------------------
+      # ------------------- JAVASCRIPT ENVIRONMENT -------------------
       - name: Set up Node.js
         if: steps.detect.outputs.lang == 'js'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install JS Dependencies & Playwright
+      - name: Install JS dependencies
         if: steps.detect.outputs.lang == 'js'
         run: |
           cd ${{ steps.detect.outputs.task_dir }}
-          npm install
+          npm ci || npm install
           npx playwright install --with-deps chromium
 
-      # ------------------- TOOLSHOP CONTAINER SETUP -------------------
+      # ------------------- START TOOLSHOP APP -------------------
       - name: Start Toolshop App
         if: steps.detect.outputs.has_changes == 'true'
         run: |
@@ -97,13 +93,13 @@ jobs:
           cd practice-software-testing
           docker compose up -d
 
-          echo "Waiting for MariaDB and running migrations..."
+          echo "Waiting for MariaDB and executing database seeding..."
           for i in {1..12}; do
             if docker compose exec -T laravel-api php artisan migrate:fresh --seed; then
               echo "Database seeded successfully."
               break
             fi
-            echo "Database not ready, retrying in 5s... ($i/12)"
+            echo "Database not ready yet, retrying in 5s... ($i/12)"
             sleep 5
           done
 
@@ -115,14 +111,13 @@ jobs:
           echo "Waiting for API (port 8091) to return products..."
           for i in {1..30}; do
             if curl -s http://localhost:8091/products | grep -q "id"; then
-              echo "API is healthy and catalog is populated."
+              echo "API is ready."
               break
             fi
-            echo "API not ready, retrying in 5s... ($i/30)"
             sleep 5
           done
 
-          echo "Waiting for Frontend (port 4200) to serve compiled app..."
+          echo "Waiting for Frontend (port 4200)..."
           FRONTEND_READY=false
           for i in {1..30}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4200 || echo "000")
@@ -131,31 +126,30 @@ jobs:
               FRONTEND_READY=true
               break
             fi
-            echo "Frontend status: $STATUS, retrying in 5s... ($i/30)"
             sleep 5
           done
 
           if [ "$FRONTEND_READY" = false ]; then
-            echo "Frontend failed to start. Container logs:"
+            echo "Frontend failed to start. Dumping container logs:"
             cd practice-software-testing
             docker compose logs --tail=100
             exit 1
           fi
 
       # ------------------- TEST EXECUTION -------------------
-      - name: Run Python Playwright Tests
+      - name: Run Python Tests
         if: steps.detect.outputs.lang == 'python'
         run: |
           cd ${{ steps.detect.outputs.task_dir }}
           pytest test.py --html=report.html --self-contained-html -v
 
-      - name: Run JavaScript Playwright Tests
+      - name: Run JavaScript Tests
         if: steps.detect.outputs.lang == 'js'
         run: |
           cd ${{ steps.detect.outputs.task_dir }}
           npx playwright test
 
-      # ------------------- REPORT ARTIFACTS -------------------
+      # ------------------- ARTIFACTS -------------------
       - name: Upload Test Report
         if: always() && steps.detect.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
@@ -179,19 +173,16 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and Push Docker Image
+      - name: Build and Push Member Image
         run: |
           TASK_DIR="${{ needs.test.outputs.task_dir }}"
           MEMBER="${{ needs.test.outputs.member }}"
 
           if [ ! -f "$TASK_DIR/Dockerfile" ]; then
-            echo "No Dockerfile found in $TASK_DIR. Skipping image build."
+            echo "No Dockerfile found in $TASK_DIR. Skipping image push."
             exit 0
           fi
 
           IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/toolshop-tests:${MEMBER}"
-          echo "Building image $IMAGE_TAG from $TASK_DIR..."
           docker build -t "$IMAGE_TAG" "$TASK_DIR"
-
-          echo "Pushing image to Docker Hub..."
           docker push "$IMAGE_TAG"
