@@ -111,12 +111,11 @@ def test_invalid_login(page: Page):
     page.get_by_placeholder("Your email").fill("invalid@example.com")
     page.get_by_placeholder("Your password").fill("WrongPassword*123")
 
-    page.locator("input[data-test='login-submit']").click()
+    page.get_by_role("button", name="Login").click()
 
     expect(page).to_have_url(f"{BASE_URL}/auth/login")
 
-    expect(page.get_by_text("Invalid email or password")
-).to_be_visible()
+    expect(page.get_by_text("Invalid email or password")).to_be_visible()
 
 
 def test_required_fields(page: Page):

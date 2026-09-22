@@ -12,28 +12,33 @@ async function registerUser(page) {
     await page.goto(`${BASE_URL}/auth/register`);
 
     await page.getByPlaceholder('First name *').fill('Arun');
+
     await page.getByPlaceholder('Your last name *').fill('Deepak');
+
     await page.getByPlaceholder('YYYY-MM-DD').fill('1999-01-01');
 
     await page.locator('#country').selectOption('IN');
 
     await page.getByPlaceholder('Your Postcode *').fill('630606');
+
     await page.getByPlaceholder('e.g. 42 *').fill('32-E');
 
     await page.getByPlaceholder('Your Street *').fill('Main Street');
+
     await page.getByPlaceholder('Your City *').fill('Manamadurai');
+
     await page.getByPlaceholder('Your State *').fill('Tamil Nadu');
 
     await page.locator("[data-test='phone']").fill('9876543210');
 
     await page.getByPlaceholder('Your email *').fill(email);
+
     await page.getByPlaceholder('Your password').fill(PASSWORD);
 
-    await page.locator("button[data-test='register-submit']").click();
-
-    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: 'Register' }).click();
 
     console.log('Registration URL:', page.url());
+
     console.log('Registration page:', await page.locator('body').innerText());
 
     await expect(page).toHaveURL(`${BASE_URL}/auth/login`);
@@ -49,6 +54,7 @@ async function login(page, email) {
     await page.goto(`${BASE_URL}/auth/login`);
 
     await page.getByPlaceholder('Your email').fill(email);
+
     await page.getByPlaceholder('Your password').fill(PASSWORD);
 
     await page.locator("input[data-test='login-submit']").click();
@@ -88,6 +94,7 @@ test('new browser context', async ({ page, browser }) => {
     await expect(page).toHaveURL(`${BASE_URL}/account`);
 
     const context = await browser.newContext();
+
     const newPage = await context.newPage();
 
     await newPage.goto(`${BASE_URL}/account`);
@@ -119,13 +126,14 @@ test('invalid login', async ({ page }) => {
     await page.goto(`${BASE_URL}/auth/login`);
 
     await page.getByPlaceholder('Your email').fill('invalid@example.com');
+
     await page.getByPlaceholder('Your password').fill('WrongPassword*123');
 
-    await page.locator("input[data-test='login-submit']").click();
+    await page.getByRole('button', { name: 'Login' }).click();
 
-    await page.waitForTimeout(1000);
 
     console.log('Login URL:', page.url());
+
     console.log('Login page:', await page.locator('body').innerText());
 
     await expect(page).toHaveURL(`${BASE_URL}/auth/login`);
