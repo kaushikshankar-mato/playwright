@@ -75,8 +75,6 @@ def test_ecommerce(browser_name):
 
         buttons = page.locator('a[class="btn btn-danger"]')
         buttons.nth(1).click()
-        
-
         print("Product removed successfully")
 
         page.get_by_role("button", name="Proceed to checkout").click()
