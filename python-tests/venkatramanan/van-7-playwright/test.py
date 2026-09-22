@@ -10,7 +10,6 @@ def wait_for_products_loaded(page: Page):
     expect(first_title).to_be_visible(timeout=TIMEOUT)
     expect(first_title).not_to_have_text("", timeout=TIMEOUT)
 
-
 def test_search_product(page: Page):
     page.goto(BASE_URL)
     wait_for_products_loaded(page)
