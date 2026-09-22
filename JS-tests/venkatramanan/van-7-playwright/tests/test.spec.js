@@ -68,12 +68,13 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
   });
 
   test('Dynamic selection and product details validation', async ({ page }) => {
-   
     const targetCard = page.locator('a.card').first();
     const expectedTitle = (await targetCard.locator('.card-title').innerText()).trim();
     const rawExpectedPrice = (await targetCard.locator('[data-test="product-price"]').innerText()).trim();
 
-   
+    // Strip currency symbols (e.g., "$14.15" -> "14.15")
+    const numericPrice = rawExpectedPrice.replace(/[^0-9.]/g, '');
+
     await targetCard.click();
     await page.waitForURL(/.*\/product\/.*/);
 
@@ -82,6 +83,6 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
 
     await expect(detailsTitle).toBeVisible();
     await expect(detailsTitle).toHaveText(expectedTitle);
-    await expect(detailsPrice).toContainText(rawExpectedPrice);
+    await expect(detailsPrice).toContainText(numericPrice);
   });
 });
