@@ -13,7 +13,7 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
  
     await page.goto('http://localhost:4200');
     await expect(page).toHaveTitle(/Practice Software Testing/i);
-    await expect(page.locator('.card-title').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.card-title').first()).toBeVisible();
   });
 
   test('Dynamic Search: search and validate without hardcoded strings', async ({ page }) => {
@@ -23,7 +23,7 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
 
     const searchInput = page.locator('[data-test="search-query"]');
     await searchInput.fill(dynamicSearchKeyword);
-    await page.locator('[data-test="search-submit"]').click();
+    await page.getByRole('button', { name: 'Search' }).click();
 
     const cardTitles = page.locator('.card-title');
     await expect(cardTitles.first()).toBeVisible();
@@ -48,7 +48,7 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
         if (prices[i] > prices[i + 1]) return false;
       }
       return true;
-    }, { timeout: 15000 }).toBe(true);
+    },).toBe(true);
   });
 
   test('Dynamic Pagination handling', async ({ page }) => {
