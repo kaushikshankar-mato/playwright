@@ -53,7 +53,7 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
   });
 
   test('Dynamic Pagination handling', async ({ page }) => {
-    
+
     const pagination = page.locator('ul.pagination');
     if (await pagination.isVisible()) {
       const initialFirstProduct = await page.locator('.card-title').first().innerText();
