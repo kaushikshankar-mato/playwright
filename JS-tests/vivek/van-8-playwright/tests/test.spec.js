@@ -4,7 +4,7 @@ const BASE_URL = 'http://localhost:4200';
 
 test('Toolshop cart checkout', async ({ page }) => {
 
-    // 1. Open Toolshop locally
+    // 1. Opening the Toolshop locally
     await page.goto(BASE_URL);
     await expect(page).toHaveTitle('Practice Software Testing - Toolshop - v5.0');
     console.log('Toolshop opened successfully');
