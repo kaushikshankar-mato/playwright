@@ -532,12 +532,6 @@ test('Toolshop cart checkout', async ({ page }) => {
     await expect(city).toHaveValue('Mysore');
     await expect(state).toHaveValue('Karnataka');
 
-    console.log('Postal code entered');
-    console.log('House number entered');
-    console.log('Street entered');
-    console.log('City entered');
-    console.log('State entered');
-
     const proceedButton = page.locator("[data-test='proceed-3']");
 
     await expect(proceedButton).toBeVisible();
