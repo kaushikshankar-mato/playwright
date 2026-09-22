@@ -32,14 +32,18 @@ jobs:
       - name: Detect changed task directories & languages
         id: detect
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            DIFF_BASE="origin/main...HEAD"
-          else
+          # If pushed directly to main, only check the latest commit.
+          # For all feature branches (PR or push), check all commits against main.
+          if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" = "push" ]; then
             DIFF_BASE="HEAD~1 HEAD"
+          else
+            DIFF_BASE="origin/main...HEAD"
           fi
 
-          # Detect Python changes
-          PY_TASK=$(git diff --name-only $DIFF_BASE | grep -E '^python-tests/' | cut -d'/' -f1-3 | sort -u | head -n 1)
+          echo "Diffing base: $DIFF_BASE"
+
+          # Detect Python changes (case-insensitive)
+          PY_TASK=$(git diff --name-only $DIFF_BASE | grep -iE '^python-tests/' | cut -d'/' -f1-3 | sort -u | head -n 1)
           if [ -n "$PY_TASK" ] && [ -d "$PY_TASK" ]; then
             echo "has_python=true" >> $GITHUB_OUTPUT
             echo "python_task_dir=$PY_TASK" >> $GITHUB_OUTPUT
@@ -49,8 +53,8 @@ jobs:
             echo "has_python=false" >> $GITHUB_OUTPUT
           fi
 
-          # Detect JavaScript changes
-          JS_TASK=$(git diff --name-only $DIFF_BASE | grep -E '^JS-tests/' | cut -d'/' -f1-3 | sort -u | head -n 1)
+          # Detect JavaScript changes (case-insensitive)
+          JS_TASK=$(git diff --name-only $DIFF_BASE | grep -iE '^js-tests/' | cut -d'/' -f1-3 | sort -u | head -n 1)
           if [ -n "$JS_TASK" ] && [ -d "$JS_TASK" ]; then
             echo "has_js=true" >> $GITHUB_OUTPUT
             echo "js_task_dir=$JS_TASK" >> $GITHUB_OUTPUT
