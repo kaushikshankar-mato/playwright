@@ -7,6 +7,7 @@ on:
     paths:
       - 'python-tests/**'
       - 'JS-tests/**'
+      - '.github/workflows/**'
   push:
     branches:
       - main
@@ -18,85 +19,87 @@ jobs:
   test:
     runs-on: ubuntu-latest
     outputs:
-      task_dir: ${{ steps.detect.outputs.task_dir }}
-      member: ${{ steps.detect.outputs.member }}
-      lang: ${{ steps.detect.outputs.lang }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
+      has_python: ${{ steps.detect.outputs.has_python }}
+      python_task_dir: ${{ steps.detect.outputs.python_task_dir }}
+      python_member: ${{ steps.detect.outputs.python_member }}
+      has_js: ${{ steps.detect.outputs.has_js }}
+      js_task_dir: ${{ steps.detect.outputs.js_task_dir }}
+      js_member: ${{ steps.detect.outputs.js_member }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect changed task directory & language
+      - name: Detect changed task directories & languages
         id: detect
         run: |
-          # Use origin/main...HEAD for PRs, and HEAD~1 HEAD for direct pushes/merges to main
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED_FILE=$(git diff --name-only origin/main...HEAD | grep -E '^(python-tests|JS-tests)/' | head -n 1)
+            DIFF_BASE="origin/main...HEAD"
           else
-            CHANGED_FILE=$(git diff --name-only HEAD~1 HEAD | grep -E '^(python-tests|JS-tests)/' | head -n 1)
+            DIFF_BASE="HEAD~1 HEAD"
           fi
 
-          if [ -z "$CHANGED_FILE" ]; then
+          # Detect Python changes
+          PY_TASK=$(git diff --name-only $DIFF_BASE | grep -E '^python-tests/' | cut -d'/' -f1-3 | sort -u | head -n 1)
+          if [ -n "$PY_TASK" ] && [ -d "$PY_TASK" ]; then
+            echo "has_python=true" >> $GITHUB_OUTPUT
+            echo "python_task_dir=$PY_TASK" >> $GITHUB_OUTPUT
+            echo "python_member=$(echo "$PY_TASK" | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+            echo "Found Python task: $PY_TASK"
+          else
+            echo "has_python=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Detect JavaScript changes
+          JS_TASK=$(git diff --name-only $DIFF_BASE | grep -E '^JS-tests/' | cut -d'/' -f1-3 | sort -u | head -n 1)
+          if [ -n "$JS_TASK" ] && [ -d "$JS_TASK" ]; then
+            echo "has_js=true" >> $GITHUB_OUTPUT
+            echo "js_task_dir=$JS_TASK" >> $GITHUB_OUTPUT
+            echo "js_member=$(echo "$JS_TASK" | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+            echo "Found JS task: $JS_TASK"
+          else
+            echo "has_js=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Global changes flag
+          if [ -n "$PY_TASK" ] || [ -n "$JS_TASK" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
             echo "No test files changed."
             echo "has_changes=false" >> $GITHUB_OUTPUT
-            exit 0
           fi
 
-          TYPE_FOLDER=$(echo "$CHANGED_FILE" | cut -d'/' -f1)
-          MEMBER=$(echo "$CHANGED_FILE" | cut -d'/' -f2)
-          TASK_DIR=$(echo "$CHANGED_FILE" | cut -d'/' -f1-3)
-
-          echo "task_dir=$TASK_DIR" >> $GITHUB_OUTPUT
-          echo "member=$MEMBER" >> $GITHUB_OUTPUT
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-
-          echo "Event: ${{ github.event_name }}"
-          echo "Detected Type: $TYPE_FOLDER"
-          echo "Detected Member: $MEMBER"
-          echo "Detected Task Dir: $TASK_DIR"
-
-          if [ ! -d "$TASK_DIR" ]; then
-            echo "::error::Directory '$TASK_DIR' does not exist."
-            exit 1
-          fi
-
-          if [ "$TYPE_FOLDER" = "python-tests" ]; then
-            echo "lang=python" >> $GITHUB_OUTPUT
-          elif [ "$TYPE_FOLDER" = "JS-tests" ]; then
-            echo "lang=js" >> $GITHUB_OUTPUT
-          fi
-
-      
+      # ------------------- PYTHON ENVIRONMENT -------------------
       - name: Set up Python
-        if: steps.detect.outputs.lang == 'python'
+        if: steps.detect.outputs.has_python == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        if: steps.detect.outputs.lang == 'python'
+        if: steps.detect.outputs.has_python == 'true'
         run: |
-          cd ${{ steps.detect.outputs.task_dir }}
+          cd ${{ steps.detect.outputs.python_task_dir }}
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
-     
+      # ------------------- JAVASCRIPT ENVIRONMENT -------------------
       - name: Set up Node.js
-        if: steps.detect.outputs.lang == 'js'
+        if: steps.detect.outputs.has_js == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install JS dependencies
-        if: steps.detect.outputs.lang == 'js'
+        if: steps.detect.outputs.has_js == 'true'
         run: |
-          cd ${{ steps.detect.outputs.task_dir }}
+          cd ${{ steps.detect.outputs.js_task_dir }}
           npm ci || npm install
           npx playwright install --with-deps chromium
 
-      
+      # ------------------- START TOOLSHOP APP -------------------
       - name: Start Toolshop App
         if: steps.detect.outputs.has_changes == 'true'
         run: |
@@ -119,7 +122,7 @@ jobs:
       - name: Wait for Toolshop Readiness (ports 8091 & 4200)
         if: steps.detect.outputs.has_changes == 'true'
         run: |
-          echo "Waiting for Toolshop API (port 8091) to return products..."
+          echo "Waiting for Toolshop API (port 8091)..."
           for i in {1..30}; do
             if curl -s http://localhost:8091/products | grep -q "id"; then
               echo "Toolshop API is ready."
@@ -141,13 +144,13 @@ jobs:
           done
 
           if [ "$FRONTEND_READY" = false ]; then
-            echo "Toolshop Frontend failed to start. Dumping container logs:"
+            echo "Toolshop Frontend failed to start. Container logs:"
             cd practice-software-testing
             docker compose logs --tail=100
             exit 1
           fi
 
-     
+      # ------------------- START ORANGEHRM -------------------
       - name: Start OrangeHRM
         if: steps.detect.outputs.has_changes == 'true'
         run: |
@@ -200,27 +203,30 @@ jobs:
             exit 1
           fi
 
+      # ------------------- TEST EXECUTION -------------------
       - name: Run Python Tests
-        if: steps.detect.outputs.lang == 'python'
+        if: steps.detect.outputs.has_python == 'true'
         run: |
-          cd ${{ steps.detect.outputs.task_dir }}
+          cd ${{ steps.detect.outputs.python_task_dir }}
           pytest test.py --html=report.html --self-contained-html -v
 
       - name: Run JavaScript Tests
-        if: steps.detect.outputs.lang == 'js'
+        if: steps.detect.outputs.has_js == 'true'
         run: |
-          cd ${{ steps.detect.outputs.task_dir }}
+          cd ${{ steps.detect.outputs.js_task_dir }}
           npx playwright test
 
-      
-      - name: Upload Test Report
+      # ------------------- ARTIFACTS -------------------
+      - name: Upload Test Reports
         if: always() && steps.detect.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.detect.outputs.member }}-report
+          name: task-test-reports
           path: |
-            ${{ steps.detect.outputs.task_dir }}/report.html
-            ${{ steps.detect.outputs.task_dir }}/playwright-report/
+            ${{ steps.detect.outputs.python_task_dir }}/report.html
+            ${{ steps.detect.outputs.python_task_dir }}/failure_*.png
+            ${{ steps.detect.outputs.js_task_dir }}/playwright-report/
+            ${{ steps.detect.outputs.js_task_dir }}/failure-*.png
           if-no-files-found: ignore
 
   docker-push:
@@ -236,16 +242,24 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and Push Member Image
+      - name: Build and Push Python Task Image
+        if: needs.test.outputs.has_python == 'true'
         run: |
-          TASK_DIR="${{ needs.test.outputs.task_dir }}"
-          MEMBER="${{ needs.test.outputs.member }}"
-
-          if [ ! -f "$TASK_DIR/Dockerfile" ]; then
-            echo "No Dockerfile found in $TASK_DIR. Skipping image push."
-            exit 0
+          TASK_DIR="${{ needs.test.outputs.python_task_dir }}"
+          MEMBER="${{ needs.test.outputs.python_member }}"
+          if [ -f "$TASK_DIR/Dockerfile" ]; then
+            IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/toolshop-tests:${MEMBER}-python"
+            docker build -t "$IMAGE_TAG" "$TASK_DIR"
+            docker push "$IMAGE_TAG"
           fi
 
-          IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/toolshop-tests:${MEMBER}"
-          docker build -t "$IMAGE_TAG" "$TASK_DIR"
-          docker push "$IMAGE_TAG"
+      - name: Build and Push JS Task Image
+        if: needs.test.outputs.has_js == 'true'
+        run: |
+          TASK_DIR="${{ needs.test.outputs.js_task_dir }}"
+          MEMBER="${{ needs.test.outputs.js_member }}"
+          if [ -f "$TASK_DIR/Dockerfile" ]; then
+            IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/toolshop-tests:${MEMBER}-js"
+            docker build -t "$IMAGE_TAG" "$TASK_DIR"
+            docker push "$IMAGE_TAG"
+          fi
