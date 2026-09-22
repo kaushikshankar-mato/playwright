@@ -4,7 +4,6 @@ from playwright.sync_api import Page, expect
 BASE_URL = "http://localhost:4200"
 TIMEOUT = 30000
 
-
 def wait_for_products_loaded(page: Page):
     
     first_title = page.locator(".card-title").first
