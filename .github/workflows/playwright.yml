@@ -1,14 +1,11 @@
 name: CI Pipeline - Playwright Tests (Python & JS)
 
 on:
-  pull_request:
-    branches:
-      - main
+  push:
     paths:
       - 'python-tests/**'
       - 'JS-tests/**'
-      - '.github/workflows/**'
-  push:
+  pull_request:
     branches:
       - main
     paths:
