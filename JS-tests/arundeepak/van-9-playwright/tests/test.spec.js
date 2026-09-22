@@ -57,7 +57,7 @@ async function login(page, email) {
 
     await page.getByPlaceholder('Your password').fill(PASSWORD);
 
-    await page.locator("input[data-test='login-submit']").click();
+    await page.getByRole('button', { name: 'Login' }).click();
 
     await expect(page).toHaveURL(`${BASE_URL}/account`);
 }
