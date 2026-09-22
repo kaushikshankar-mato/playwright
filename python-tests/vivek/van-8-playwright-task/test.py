@@ -502,12 +502,6 @@ def test_toolshop_cart_checkout():
         expect(city).to_have_value("Mysore")
         expect(state).to_have_value("Karnataka")
 
-        print("Postal code entered")
-        print("House number entered")
-        print("Street entered")
-        print("City entered")
-        print("State entered")
-
         proceed_button = page.locator("[data-test='proceed-3']")
 
         expect(proceed_button).to_be_visible()
