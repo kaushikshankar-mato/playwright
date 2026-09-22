@@ -41,7 +41,6 @@ test.describe('Toolshop End-to-End Dynamic Automation', () => {
     const sortDropdown = page.locator('[data-test="sort"]');
     await sortDropdown.selectOption('price,asc');
 
-    
     await expect.poll(async () => {
       const priceTexts = await page.locator('[data-test="product-price"]').allInnerTexts();
       const prices = priceTexts.map(p => parseFloat(p.replace(/[^0-9.]/g, '')));

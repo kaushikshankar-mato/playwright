@@ -1,5 +1,3 @@
-
-
 import { test, expect } from '@playwright/test';
 
 const BASE_URL = 'https://www.saucedemo.com';
